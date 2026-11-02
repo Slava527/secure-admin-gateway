@@ -1,0 +1,7 @@
+# Пространство имён паттерна; стандарт Pod Security уровня restricted
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sag
+  labels:
+    pod-security.kubernetes.io/enforce: restricted

@@ -1,0 +1,59 @@
+# Конвейер непрерывной интеграции паттерна «Защищённый административный шлюз».
+# Запускается при каждом push и pull request в ветку main.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read          # минимальные права токена GITHUB_TOKEN
+
+jobs:
+  unit-tests:             # 1. Проверка логики безопасности сервисов
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install cryptography==44.0.0 "PyJWT[crypto]==2.10.1" PyYAML==6.0.2 pydantic==2.10.4
+      - run: python tests/test_logic.py
+
+  manifests:              # 2. Проверка манифестов Kubernetes по схемам API
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+      - name: Render with Kustomize and validate
+        run: kubectl kustomize . | kubeconform -strict -summary -kubernetes-version 1.30.0
+
+  e2e-compose:            # 3. Сквозная проверка сценариев угроз
+    runs-on: ubuntu-24.04
+    needs: [unit-tests, manifests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -r tools/requirements.txt
+      - name: Issue PKI and start the pattern
+        run: |
+          bash pki/gen-certs.sh
+          REDIS_PASSWORD=$(openssl rand -hex 16) docker compose up --build -d
+          for i in $(seq 1 30); do
+            code=$(curl -sk --cert pki/out/admin.crt --key pki/out/admin.key -o /dev/null -w '%{http_code}' https://localhost:8443/admin/users || true)
+            [ "$code" = "401" ] && break   # шлюз отвечает: запрос без подписи отклонён
+            sleep 2
+          done
+          docker compose ps
+      - name: Run legitimate and attacker scenarios
+        run: python tools/demo.py --no-pause
+      - name: Audit log
+        if: always()
+        run: docker compose logs audit tls-proxy
+      - run: docker compose down
+        if: always()

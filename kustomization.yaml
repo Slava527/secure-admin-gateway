@@ -1,0 +1,24 @@
+# Развёртывание: kubectl apply -k .
+namespace: sag
+resources:
+  - k8s/00-namespace.yaml
+  - k8s/20-redis.yaml
+  - k8s/30-internal-services.yaml
+  - k8s/40-gateway.yaml
+  - k8s/50-network-policies.yaml
+configMapGenerator:
+  - name: sag-gateway-nginx
+    files: [nginx.conf=services/gateway/nginx.conf]
+  - name: sag-authz-policy
+    files: [policy.yaml=services/authz/policy.yaml]
+generatorOptions:
+  disableNameSuffixHash: true
+# Для Yandex Cloud укажите адрес реестра Cloud Registry вместо <REGISTRY_ID>
+# и раскомментируйте блок images:
+# images:
+#   - {name: sag/gateway,          newName: registry.yandexcloud.net/<REGISTRY_ID>/sag-gateway,          newTag: "1.0"}
+#   - {name: sag/request-verifier, newName: registry.yandexcloud.net/<REGISTRY_ID>/sag-request-verifier, newTag: "1.0"}
+#   - {name: sag/auth,             newName: registry.yandexcloud.net/<REGISTRY_ID>/sag-auth,             newTag: "1.0"}
+#   - {name: sag/authz,            newName: registry.yandexcloud.net/<REGISTRY_ID>/sag-authz,            newTag: "1.0"}
+#   - {name: sag/audit,            newName: registry.yandexcloud.net/<REGISTRY_ID>/sag-audit,            newTag: "1.0"}
+#   - {name: sag/admin-api,        newName: registry.yandexcloud.net/<REGISTRY_ID>/sag-admin-api,        newTag: "1.0"}

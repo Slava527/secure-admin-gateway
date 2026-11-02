@@ -1,0 +1,6 @@
+# Обязательный mTLS между подами пространства имён (при установленной сервисной сетке Istio)
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata: {name: strict-mtls, namespace: sag}
+spec:
+  mtls: {mode: STRICT}

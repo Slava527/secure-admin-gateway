@@ -1,0 +1,85 @@
+# Локальный запуск паттерна для отладки: docker compose up --build
+# Наружу опубликован только порт 8443 TLS-терминатора шлюза.
+name: sag
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  networks: [internal]
+
+services:
+  tls-proxy:                      # аналог контейнера nginx в поде sag-gateway; владеет сетевым пространством
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [internal, edge]
+    ports: ["8443:8443"]          # наружу опубликован только TLS-терминатор
+    volumes:
+      - ./services/gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./pki/out/server.crt:/pki/server.crt:ro
+      - ./pki/out/server.key:/pki/server.key:ro
+      - ./pki/out/ca.crt:/pki/ca.crt:ro
+    restart: unless-stopped
+
+  gateway:                        # работает в сетевом пространстве tls-proxy, как контейнеры одного пода
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    build: ./services/gateway
+    network_mode: "service:tls-proxy"
+    depends_on: [tls-proxy, request-verifier, auth, authz, audit, admin-api]
+
+  request-verifier:
+    <<: *hardening
+    build: ./services/request-verifier
+    networks:
+      internal:
+        aliases: [sag-request-verifier]   # имя сервиса, как в Kubernetes
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD:-change-me}@redis:6379/0
+    depends_on: [redis]
+
+  auth:
+    <<: *hardening
+    build: ./services/auth
+    networks:
+      internal:
+        aliases: [sag-auth]   # имя сервиса, как в Kubernetes
+    volumes: ["./pki/out/jwt-public.pem:/keys/jwt-public.pem:ro"]
+
+  authz:
+    <<: *hardening
+    build: ./services/authz
+    networks:
+      internal:
+        aliases: [sag-authz]   # имя сервиса, как в Kubernetes
+    volumes: ["./services/authz/policy.yaml:/policy/policy.yaml:ro"]
+
+  audit:
+    <<: *hardening
+    build: ./services/audit
+    ports: ["127.0.0.1:9100:8000"]   # /metrics доступны только локально
+    networks:
+      internal:
+        aliases: [sag-audit]
+      edge: {}
+
+  admin-api:
+    <<: *hardening
+    build: ./services/admin-api
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-change-me}", "--save", ""]
+    networks: [internal]
+    restart: unless-stopped
+
+networks:
+  internal:
+    internal: true    # сеть без выхода наружу: внутренние сервисы недоступны извне
+  edge: {}

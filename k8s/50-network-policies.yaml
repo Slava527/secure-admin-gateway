@@ -1,0 +1,47 @@
+# Сетевые политики: «запрещено всё, что не разрешено явно».
+# В Yandex Managed Service for Kubernetes требуется кластер с включённым контроллером сетевых политик (Calico или Cilium).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: sag}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+# Внешний трафик допускается только к TLS-терминатору шлюза
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-gateway-ingress, namespace: sag}
+spec:
+  podSelector: {matchLabels: {app: sag-gateway}}
+  ingress:
+    - ports: [{port: 8443}]
+---
+# Внутренние сервисы и защищаемое приложение доступны только со стороны шлюза
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-from-gateway, namespace: sag}
+spec:
+  podSelector: {matchLabels: {sag/role: internal}}
+  ingress:
+    - from: [{podSelector: {matchLabels: {app: sag-gateway}}}]
+      ports: [{port: 8000}]
+---
+# Хранилище nonce доступно только сервису проверки запросов
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-redis-from-verifier, namespace: sag}
+spec:
+  podSelector: {matchLabels: {app: redis}}
+  ingress:
+    - from: [{podSelector: {matchLabels: {app: sag-request-verifier}}}]
+      ports: [{port: 6379}]
+---
+# Сбор метрик sag-audit из пространства имён мониторинга
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-metrics-scrape, namespace: sag}
+spec:
+  podSelector: {matchLabels: {app: sag-audit}}
+  ingress:
+    - from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}}]
+      ports: [{port: 8000}]

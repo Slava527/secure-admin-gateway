@@ -1,0 +1,15 @@
+# Политика доступа к административному API (хранится в Git, изменяется через ревью)
+admin_networks:          # сети, из которых разрешено администрирование
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+  - 127.0.0.0/8
+rules:
+  - role: admin          # полный административный доступ
+    allow:
+      - methods: [GET, POST, PUT, PATCH, DELETE]
+        path_prefix: /admin/
+  - role: auditor        # только чтение
+    allow:
+      - methods: [GET]
+        path_prefix: /admin/

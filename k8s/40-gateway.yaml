@@ -1,0 +1,138 @@
+# sag-gateway: единственная точка входа (TLS-терминатор nginx + приложение шлюза в одном поде)
+# Service типа LoadBalancer в Yandex Managed Service for Kubernetes создаёт сетевой балансировщик Network Load Balancer
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sag-gateway
+  namespace: sag
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: sag-gateway
+  template:
+    metadata:
+      labels:
+        app: sag-gateway
+        sag/role: gateway
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: false
+      containers:
+      - name: tls-proxy
+        image: nginxinc/nginx-unprivileged:1.27-alpine
+        ports:
+        - containerPort: 8443
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 250m
+            memory: 128Mi
+        securityContext: &id001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        readinessProbe:
+          tcpSocket:
+            port: 8443
+          periodSeconds: 10
+        volumeMounts:
+        - name: nginx-conf
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+          readOnly: true
+        - name: tls
+          mountPath: /pki
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      - name: gateway
+        image: sag/gateway:1.0
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 192Mi
+        securityContext: *id001
+        readinessProbe:
+          httpGet: &id002
+            path: /healthz
+            port: 8000
+          periodSeconds: 10
+        livenessProbe:
+          httpGet: *id002
+          periodSeconds: 10
+          initialDelaySeconds: 10
+      volumes:
+      - name: nginx-conf
+        configMap:
+          name: sag-gateway-nginx
+      - name: tls
+        secret:
+          secretName: sag-gateway-tls
+      - name: tmp
+        emptyDir: {}
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: sag-gateway
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sag-gateway
+  namespace: sag
+spec:
+  type: LoadBalancer
+  selector:
+    app: sag-gateway
+  ports:
+  - port: 443
+    targetPort: 8443
+  externalTrafficPolicy: Local
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sag-gateway
+  namespace: sag
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: sag-gateway
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sag-gateway
+  namespace: sag
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: sag-gateway
+  minReplicas: 3
+  maxReplicas: 6
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

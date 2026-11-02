@@ -1,0 +1,343 @@
+# Внутренние сервисы паттерна и защищаемое приложение (тип Service: ClusterIP)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sag-request-verifier
+  namespace: sag
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sag-request-verifier
+  template:
+    metadata:
+      labels:
+        app: sag-request-verifier
+        sag/role: internal
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: false
+      containers:
+      - name: verifier
+        image: sag/request-verifier:1.0
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 192Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        readinessProbe:
+          httpGet: &id001
+            path: /healthz
+            port: 8000
+          periodSeconds: 10
+        livenessProbe:
+          httpGet: *id001
+          periodSeconds: 10
+          initialDelaySeconds: 10
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: sag-redis
+              key: password
+        - name: REDIS_URL
+          value: redis://:$(REDIS_PASSWORD)@redis:6379/0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sag-request-verifier
+  namespace: sag
+spec:
+  type: ClusterIP
+  selector:
+    app: sag-request-verifier
+  ports:
+  - port: 8000
+    targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sag-auth
+  namespace: sag
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sag-auth
+  template:
+    metadata:
+      labels:
+        app: sag-auth
+        sag/role: internal
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: false
+      containers:
+      - name: auth
+        image: sag/auth:1.0
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 192Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        readinessProbe:
+          httpGet: &id001
+            path: /healthz
+            port: 8000
+          periodSeconds: 10
+        livenessProbe:
+          httpGet: *id001
+          periodSeconds: 10
+          initialDelaySeconds: 10
+        volumeMounts:
+        - name: jwt
+          mountPath: /keys
+          readOnly: true
+      volumes:
+      - name: jwt
+        secret:
+          secretName: sag-jwt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sag-auth
+  namespace: sag
+spec:
+  type: ClusterIP
+  selector:
+    app: sag-auth
+  ports:
+  - port: 8000
+    targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sag-authz
+  namespace: sag
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sag-authz
+  template:
+    metadata:
+      labels:
+        app: sag-authz
+        sag/role: internal
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: false
+      containers:
+      - name: authz
+        image: sag/authz:1.0
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 192Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        readinessProbe:
+          httpGet: &id001
+            path: /healthz
+            port: 8000
+          periodSeconds: 10
+        livenessProbe:
+          httpGet: *id001
+          periodSeconds: 10
+          initialDelaySeconds: 10
+        volumeMounts:
+        - name: policy
+          mountPath: /policy
+          readOnly: true
+      volumes:
+      - name: policy
+        configMap:
+          name: sag-authz-policy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sag-authz
+  namespace: sag
+spec:
+  type: ClusterIP
+  selector:
+    app: sag-authz
+  ports:
+  - port: 8000
+    targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sag-audit
+  namespace: sag
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sag-audit
+  template:
+    metadata:
+      labels:
+        app: sag-audit
+        sag/role: internal
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8000'
+        prometheus.io/path: /metrics
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: false
+      containers:
+      - name: audit
+        image: sag/audit:1.0
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 192Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        readinessProbe:
+          httpGet: &id001
+            path: /healthz
+            port: 8000
+          periodSeconds: 10
+        livenessProbe:
+          httpGet: *id001
+          periodSeconds: 10
+          initialDelaySeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sag-audit
+  namespace: sag
+spec:
+  type: ClusterIP
+  selector:
+    app: sag-audit
+  ports:
+  - port: 8000
+    targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-api
+  namespace: sag
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: admin-api
+  template:
+    metadata:
+      labels:
+        app: admin-api
+        sag/role: internal
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: false
+      containers:
+      - name: admin-api
+        image: sag/admin-api:1.0
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 192Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        readinessProbe:
+          httpGet: &id001
+            path: /healthz
+            port: 8000
+          periodSeconds: 10
+        livenessProbe:
+          httpGet: *id001
+          periodSeconds: 10
+          initialDelaySeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-api
+  namespace: sag
+spec:
+  type: ClusterIP
+  selector:
+    app: admin-api
+  ports:
+  - port: 8000
+    targetPort: 8000
