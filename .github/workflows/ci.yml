@@ -43,6 +43,9 @@ jobs:
       - name: Issue PKI and start the pattern
         run: |
           bash pki/gen-certs.sh
+          # openssl создаёт ключ с правами 0600 владельца runner; nginx в контейнере
+          # работает от uid 101, поэтому ключ шлюза делается доступным для чтения
+          chmod 0644 pki/out/server.key
           REDIS_PASSWORD=$(openssl rand -hex 16) docker compose up --build -d
           for i in $(seq 1 30); do
             code=$(curl -sk --cert pki/out/admin.crt --key pki/out/admin.key -o /dev/null -w '%{http_code}' https://localhost:8443/admin/users || true)

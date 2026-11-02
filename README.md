@@ -45,6 +45,9 @@ bash pki/gen-certs.sh          # создаёт pki/out/*: УЦ, сертифи�
 
 ## 2. Локальный запуск (Docker Compose)
 
+В Linux перед запуском выполните `chmod 0644 pki/out/server.key`: nginx в контейнере работает от uid 101
+и должен прочитать ключ шлюза (в Windows и macOS Docker Desktop это не требуется).
+
 ```bash
 docker compose up --build -d
 docker compose ps
