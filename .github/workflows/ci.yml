@@ -15,16 +15,16 @@ jobs:
   unit-tests:             # 1. Проверка логики безопасности сервисов
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with: {python-version: "3.12"}
-      - run: pip install cryptography==44.0.0 "PyJWT[crypto]==2.10.1" PyYAML==6.0.2 pydantic==2.10.4
+      - run: pip install -r tools/requirements.txt PyYAML==6.0.2 pydantic==2.10.4
       - run: python tests/test_logic.py
 
   manifests:              # 2. Проверка манифестов Kubernetes по схемам API
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install kubeconform
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
@@ -36,8 +36,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [unit-tests, manifests]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with: {python-version: "3.12"}
       - run: pip install -r tools/requirements.txt
       - name: Issue PKI and start the pattern
